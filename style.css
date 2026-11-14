@@ -64,6 +64,13 @@ ul.clues { padding-inline-start: 20px; font-size: 17px; line-height: 1.6; margin
 .huge { font-size: 64px; text-align: center; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 
+.suspects { grid-template-columns: 1fr 1fr; }
+.scanner { position: fixed; inset: 0; background: #000; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 16px; }
+.scanner video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.scanner .frame { position: absolute; top: 50%; left: 50%; width: 68vmin; height: 68vmin; transform: translate(-50%, -55%); border: 4px solid var(--neon); border-radius: 24px; box-shadow: 0 0 0 100vmax #0008; }
+.scanner .scanmsg { position: relative; color: #fff; font-size: 19px; font-weight: 700; margin-bottom: 10px; text-shadow: 0 1px 4px #000; }
+.scanner .btn { position: relative; max-width: 360px; background: #000a; color: #fff; border-color: #fff; }
+
 /* ---------- מסך מנהל ---------- */
 .admin #app { max-width: 900px; }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; position: sticky; top: 0; background: var(--bg); padding: 8px 0; z-index: 5; }

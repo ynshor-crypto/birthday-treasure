@@ -128,16 +128,52 @@
     view.innerHTML = `<div class="card"><div class="dim center">תחנה ${S.pos + 1} מתוך ${BT.STATIONS}</div>
       <h2 class="center">היעד הבא שלכם</h2>
       <div class="dest">📍 ${esc(S.cfg.st[cur()])}</div>
-      <p class="center">מצאו שם את דף הקוד הסודי, וסרקו אותו במצלמת הטלפון.</p>
+      <p class="center">מצאו שם את דף הקוד הסודי וסרקו אותו.</p>
+      <button class="btn" id="scan">📷 סריקת הקוד</button>
       <div class="msg" id="msg">${esc(flash)}</div></div>
-      <div class="card"><p class="dim center">הסריקה לא עובדת? הקלידו את המספר שמודפס מתחת לקוד:</p>
+      <div class="card"><p class="dim center">הסריקה לא עובדת? אפשר לסרוק גם במצלמה הרגילה של הטלפון, או להקליד את המספר שמודפס מתחת לקוד:</p>
       <input class="in" id="code" inputmode="numeric" maxlength="3" placeholder="_ _ _" autocomplete="off" />
       <button class="btn ghost" id="enter">פתיחת התחנה</button></div>
       <div class="card"><div class="dim center">האותיות הסודיות שלכם</div>${slotsHtml()}<div class="stars">⭐ ${totalStars()}</div></div>`;
     flash = "";
     const go = () => { const v = document.getElementById("code").value.trim(); if (v) { arrive(v); render(); } };
     document.getElementById("enter").onclick = go;
+    document.getElementById("scan").onclick = openScanner;
     document.getElementById("code").onkeydown = (e) => { if (e.key === "Enter") go(); };
+  }
+  // סריקת QR בתוך האפליקציה (מצלמה אחורית + jsQR). אם אין הרשאה, נשארות המצלמה הרגילה וההקלדה.
+  async function openScanner() {
+    const ov = document.createElement("div");
+    ov.className = "scanner";
+    ov.innerHTML = `<video playsinline muted></video><div class="frame"></div><div class="scanmsg">כוונו את המצלמה אל הקוד</div><button class="btn ghost">סגירה ✕</button>`;
+    document.body.appendChild(ov);
+    const video = ov.querySelector("video"), cv = document.createElement("canvas"), cx = cv.getContext("2d", { willReadFrequently: true });
+    let stream = null, alive = true;
+    const close = () => { alive = false; if (stream) stream.getTracks().forEach((t) => t.stop()); ov.remove(); };
+    ov.querySelector("button").onclick = close;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      if (!alive) return stream.getTracks().forEach((t) => t.stop());
+      video.srcObject = stream; await video.play();
+    } catch (e) {
+      close(); flash = "אין גישה למצלמה. סרקו במצלמה הרגילה של הטלפון, או הקלידו את המספר 🙂"; render(); return;
+    }
+    const loop = () => {
+      if (!alive) return;
+      if (video.videoWidth) {
+        const k = Math.min(1, 720 / video.videoWidth);
+        cv.width = video.videoWidth * k; cv.height = video.videoHeight * k;
+        cx.drawImage(video, 0, 0, cv.width, cv.height);
+        const hit = jsQR(cx.getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height, { inversionAttempts: "dontInvert" });
+        if (hit && hit.data) {
+          const m = /[?&]s=(\d{3})\b/.exec(hit.data);
+          if (m) { close(); arrive(m[1]); render(); return; }
+          ov.querySelector(".scanmsg").textContent = "זה לא קוד של תחנה. חפשו את הדף הסודי";
+        }
+      }
+      setTimeout(loop, 150);
+    };
+    loop();
   }
   function arrive(code) {
     const idx = BT.CODES.indexOf(String(code).trim());
@@ -167,7 +203,7 @@
     const inp = d.querySelector("input");
     const check = () => {
       if (!inp.value.trim()) return;
-      if (BT.norm(inp.value) === BT.norm(answer)) ctx.solve();
+      if ([].concat(answer).some((a) => BT.norm(a) === BT.norm(inp.value))) ctx.solve();
       else { inp.classList.remove("shake"); void inp.offsetWidth; inp.classList.add("shake"); ctx.msg("כמעט! בדקו שוב ונסו עוד פעם 🙂"); sfx.no(); }
     };
     d.querySelector("button").onclick = check;
@@ -177,66 +213,72 @@
 
   const COLORS = { g: ["#2ee68a", "ירוק"], r: ["#ff5a5a", "אדום"], b: ["#4aa8ff", "כחול"], y: ["#ffd84a", "צהוב"] };
   const TONES = { g: 392, r: 494, b: 587, y: 698 };
-  const SEQ = ["g", "r", "r", "b", "y", "g"];
+  const SEQ = ["g", "b", "r", "y", "b", "g", "r"]; // מקישים בסדר הפוך
+  const SEQ_IN = SEQ.slice().reverse();
   const SUSPECTS = [
-    { n: "גברת ורד", f: "🌹", a: ["👓 עם משקפיים", "🎩 עם כובע", "🧥 מעיל כחול"] },
-    { n: "מר תפוז", f: "🍊", a: ["בלי משקפיים", "🎩 עם כובע", "🧥 מעיל אדום"] },
-    { n: "דוקטור לימון", f: "🍋", a: ["בלי משקפיים", "בלי כובע", "🧥 מעיל ירוק"] },
-    { n: "קפטן מלפפון", f: "🥒", a: ["בלי משקפיים", "🎩 עם כובע", "🧥 מעיל ירוק"], guilty: true },
+    { n: "גברת ענב", f: "🍇", a: ["👓 עם משקפיים", "בלי כובע", "🧥 מעיל כחול", "🧳 מזוודה"] },
+    { n: "מר תפוז", f: "🍊", a: ["בלי משקפיים", "🎩 עם כובע", "🧥 מעיל אדום", "☂️ מטרייה"] },
+    { n: "קפטן מלפפון", f: "🥒", a: ["בלי משקפיים", "🎩 עם כובע", "🧥 מעיל ירוק", "🧳 מזוודה"], guilty: true },
+    { n: "גברת ורד", f: "🌹", a: ["👓 עם משקפיים", "🎩 עם כובע", "🧥 מעיל כחול", "☂️ מטרייה"] },
+    { n: "פרופסור גזר", f: "🥕", a: ["👓 עם משקפיים", "בלי כובע", "🧥 מעיל ירוק", "☂️ מטרייה"] },
+    { n: "דוקטור לימון", f: "🍋", a: ["בלי משקפיים", "בלי כובע", "🧥 מעיל ירוק", "📰 עיתון"] },
   ];
+  // גימטריה: כל תרגיל נותן ערך של אות
+  const GEM = { א: 1, ב: 2, ג: 3, ד: 4, ה: 5, ו: 6, ז: 7, ח: 8, ט: 9, י: 10, כ: 20, ל: 30, מ: 40, נ: 50, ס: 60, ע: 70, פ: 80, צ: 90, ק: 100, ר: 200, ש: 300, ת: 400 };
+  const GEM_EX = [["ע", "7×10"], ["ו", "2×3"], ["ג", "12÷4"], ["ת", "8×50"], null, ["ש", "6×50"], ["ו", "36÷6"], ["ק", "4×25"], ["ו", "18÷3"], ["ל", "5×6"], ["ד", "28÷7"]];
 
   const PUZZLES = [
     {
-      title: "צופן אתב״ש", fact: "atbash", plain: "המטמון קרוב",
+      title: "צופן אתב״ש", fact: "atbash", plain: "המטמון מחכה לסוכנים אמיצים",
       build(box, ctx) {
-        const pairs = [...ALEF.slice(0, 11)].map((ch, i) => `<div><b>${ch}</b> ↔ <b>${ALEF[21 - i]}</b></div>`).join("");
-        box.innerHTML = `<p>הודעה מוצפנת הגיעה מהמפקדה! באתב״ש כל אות מתחלפת באות שמולה בטבלה.</p>
-          <div class="cipher">${atbash(this.plain)}</div><div class="key">${pairs}</div><p class="dim">מה כתוב בהודעה?</p>`;
+        const pairs = [...ALEF.slice(0, 4)].map((ch, i) => `<div><b>${ch}</b> ↔ <b>${ALEF[21 - i]}</b></div>`).join("") + "<div>...</div><div>?</div>";
+        box.innerHTML = `<p>הודעה מוצפנת הגיעה מהמפקדה! בצופן אתב״ש האות הראשונה באלף-בית מתחלפת באחרונה, השנייה באחת לפני האחרונה, וכך הלאה. את שאר הטבלה תצטרכו להשלים לבד.</p>
+          <div class="cipher" style="font-size:25px">${atbash(this.plain)}</div><div class="key">${pairs}</div><p class="dim">מה כתוב בהודעה? (4 מילים)</p>`;
         textAnswer(box, ctx, this.plain);
       },
-      hints: ["האות הראשונה בהודעה היא <b>ה</b>. המשיכו אות אחרי אות לפי הטבלה.", "המילה הראשונה היא: <b>המטמון</b>"],
-      solution: "ההודעה: המטמון קרוב",
+      hints: [`הטבלה המלאה:<div class="key" style="grid-template-columns:repeat(4,1fr)">${[...ALEF.slice(0, 11)].map((ch, i) => `<div><b>${ch}</b> ↔ <b>${ALEF[21 - i]}</b></div>`).join("")}</div>`, "שתי המילים הראשונות: <b>המטמון מחכה</b>"],
+      solution: "ההודעה: המטמון מחכה לסוכנים אמיצים",
     },
     {
-      title: "שידור מורס", fact: "morse", code: "7310",
+      title: "שידור מורס", fact: "morse", code: "938607",
       build(box, ctx) {
-        const key = Object.keys(MORSE).map((d) => `<div dir="ltr"><b>${d}</b> ${MORSE[d]}</div>`).join("");
+        const key = [1, 2, 3, 4, 5].map((d) => `<div dir="ltr"><b>${d}</b> ${MORSE[d]}</div>`).join("") + `<div>6 עד 0: ?</div>`;
         const chips = [...this.code].map((d, i) => `<div class="chip"><small>ספרה ${i + 1}</small>${MORSE[d]}</div>`).join("");
-        box.innerHTML = `<p>המפקדה משדרת קוד בן 4 ספרות בקוד מורס: נקודות וקווים. פענחו לפי הטבלה.</p>
+        box.innerHTML = `<p>המפקדה משדרת קוד בן 6 ספרות בקוד מורס. חלק מהטבלה נמחק! מצאו את החוקיות והשלימו את הספרות החסרות.</p>
           <div class="chips" dir="ltr">${chips}</div><button class="btn ghost" id="play">▶ השמעת השידור</button>
           <div class="key" style="grid-template-columns:repeat(2,1fr)">${key}</div>`;
         box.querySelector("#play").onclick = () => {
           let t = 0; const u = 0.11;
           [...this.code].forEach((d) => { [...MORSE[d]].forEach((s) => { const len = s === "•" ? u : u * 3; beep(700, len, "sine", t, 0.15); t += len + u; }); t += u * 4; });
         };
-        textAnswer(box, ctx, this.code, { numeric: true, placeholder: "4 ספרות" });
+        textAnswer(box, ctx, this.code, { numeric: true, placeholder: "6 ספרות" });
       },
-      hints: ["הספרה הראשונה היא <b>7</b>.", "שתי הספרות הראשונות: <b>73</b>"],
-      solution: "הקוד: 7310",
+      hints: ["בכל ספרה יש 5 סימנים. מ-1 עד 5 הנקודות בהתחלה ומתרבות. מ-6 הכול מתהפך: 6 הוא קו אחד ואחריו ארבע נקודות, 7 הוא שני קווים ושלוש נקודות...", `הטבלה המלאה:<div class="key" style="grid-template-columns:repeat(2,1fr)">${Object.keys(MORSE).map((d) => `<div dir="ltr"><b>${d}</b> ${MORSE[d]}</div>`).join("")}</div>`],
+      solution: "הקוד: 938607",
     },
     {
-      title: "כתב ראי", fact: "mirror",
+      title: "חידה בכתב ראי", fact: "mirror",
       build(box, ctx) {
-        box.innerHTML = `<p>ההודעה הזאת נכתבה בכתב ראי. מה הסיסמה?</p><div class="mirror">הסיסמה של הסוכנים היא:<br>ברק כחול</div>`;
-        textAnswer(box, ctx, "ברק כחול", { placeholder: "הסיסמה (שתי מילים)" });
+        box.innerHTML = `<p>ההודעה הזאת נכתבה בכתב ראי, ומסתתרת בה חידה. פענחו את החידה וכתבו את הפתרון שלה.</p><div class="mirror">הוא שייך רק לך,<br>אבל כל האחרים משתמשים בו<br>הרבה יותר ממך.<br>מה זה?</div>`;
+        textAnswer(box, ctx, ["שם", "השם", "השם שלי", "השם שלך", "שמי", "השם שלנו", "שם פרטי"], { placeholder: "הפתרון לחידה" });
       },
-      hints: ["בכתב ראי הכול הפוך: התחילו לקרוא מצד שמאל, והפכו כל אות בראש.", "המילה הראשונה בסיסמה: <b>ברק</b>"],
-      solution: "הסיסמה: ברק כחול",
+      hints: ["החידה אומרת: ״הוא שייך רק לך, אבל כל האחרים משתמשים בו הרבה יותר ממך. מה זה?״", "קוראים לך בו כל יום. יש לכל אחד מכם אחד כזה, והוא כתוב על המחברות שלכם."],
+      solution: "הפתרון: השם שלך",
     },
     {
-      title: "צופן המספרים", fact: "caesar", plain: "יום הולדת",
+      title: "צופן הגימטריה", fact: "caesar", plain: "עוגת שוקולד",
       build(box, ctx) {
-        const chips = [...this.plain].map((ch) => (ch === " " ? `<div class="chip gap"></div>` : `<div class="chip">${ALEF.indexOf(base(ch)) + 1}</div>`)).join("");
-        box.innerHTML = `<p>כל מספר הוא המקום של אות באלף-בית: א=1, ב=2, ג=3 וכך הלאה. אילו שתי מילים מסתתרות כאן?</p><div class="chips">${chips}</div>`;
+        const chips = GEM_EX.map((e) => (e ? `<div class="chip" dir="ltr" style="font-size:19px;min-width:0;padding:6px 8px">${e[1]}</div>` : `</div><div class="dim center small">מילה שנייה</div><div class="chips">`)).join("");
+        box.innerHTML = `<p>פתרו כל תרגיל. התוצאה היא אות בגימטריה (א=1, י=10, ק=100...). אילו שתי מילים מסתתרות כאן? קוראים מימין לשמאל.</p><div class="dim center small">מילה ראשונה</div><div class="chips">${chips}</div>`;
         textAnswer(box, ctx, this.plain, { placeholder: "שתי מילים" });
       },
-      hints: [`טבלת עזר:<div class="key">${[...ALEF].map((ch, i) => `<div><b>${ch}</b> ${i + 1}</div>`).join("")}</div>`, "המילה הראשונה היא: <b>יום</b>"],
-      solution: "ההודעה: יום הולדת",
+      hints: [`טבלת גימטריה:<div class="key">${Object.keys(GEM).map((ch) => `<div><b>${ch}</b> ${GEM[ch]}</div>`).join("")}</div>`, "המילה הראשונה היא: <b>עוגת</b>"],
+      solution: "ההודעה: עוגת שוקולד",
     },
     {
-      title: "קוד הצבעים", fact: "lemon",
+      title: "קוד הצבעים ההפוך", fact: "lemon",
       build(box, ctx) {
-        box.innerHTML = `<p>המפקדה משדרת קוד צבעים. צפו, זכרו, והקישו את הצבעים באותו סדר.</p>
+        box.innerHTML = `<p>המפקדה משדרת קוד של 7 צבעים. כדי לבלבל את האויב, צריך להקיש אותו <b>בסדר הפוך</b>: מהצבע האחרון עד הראשון.</p>
           <div class="lamp" id="lamp"></div><div class="center dim" id="prog"></div>
           <button class="btn ghost" id="play">▶ הפעלת השידור</button>
           <div class="pads" style="margin-top:12px">${Object.keys(COLORS).map((c) => `<button class="pad" data-c="${c}" style="background:${COLORS[c][0]}" aria-label="${COLORS[c][1]}"></button>`).join("")}</div>`;
@@ -248,29 +290,29 @@
           if (playing) return;
           playing = true; input = []; paint();
           SEQ.forEach((c, i) => {
-            setTimeout(() => { lamp.style.background = COLORS[c][0]; beep(TONES[c], 0.35, "sine"); }, i * 800);
-            setTimeout(() => { lamp.style.background = ""; }, i * 800 + 550);
+            setTimeout(() => { lamp.style.background = COLORS[c][0]; beep(TONES[c], 0.3, "sine"); }, i * 650);
+            setTimeout(() => { lamp.style.background = ""; }, i * 650 + 450);
           });
-          setTimeout(() => (playing = false), SEQ.length * 800);
+          setTimeout(() => (playing = false), SEQ.length * 650);
         };
         box.querySelectorAll(".pad").forEach((p) => (p.onclick = () => {
           if (playing) return;
           const c = p.dataset.c;
           beep(TONES[c], 0.2, "sine");
-          if (c === SEQ[input.length]) {
+          if (c === SEQ_IN[input.length]) {
             input.push(c); paint();
             if (input.length === SEQ.length) ctx.solve();
           } else { input = []; paint(); ctx.msg("כמעט! צפו שוב בשידור ונסו מההתחלה 🙂"); prog.classList.remove("shake"); void prog.offsetWidth; prog.classList.add("shake"); }
         }));
       },
-      hints: ["בשידור יש 6 צבעים. הוא מתחיל בירוק ונגמר בירוק.", "ארבעת הראשונים: ירוק, אדום, אדום, כחול."],
-      solution: "הקוד: ירוק, אדום, אדום, כחול, צהוב, ירוק",
+      hints: ["טיפ של סוכנים: חלקו תפקידים. כל סוכן זוכר צבע אחד לפי המקום שלו בשידור, ואז מקישים מהסוכן האחרון לראשון.", "ארבעת הראשונים שמקישים: אדום, ירוק, כחול, צהוב."],
+      solution: "מקישים: " + SEQ_IN.map((c) => COLORS[c][1]).join(", "),
     },
     {
       title: "מי הסוכן הכפול?", fact: "fingerprint",
       build(box, ctx) {
-        box.innerHTML = `<p>אחד מארבעת החשודים הוא סוכן כפול. שלושה רמזים אמיתיים הגיעו מהמפקדה:</p>
-          <ul class="clues"><li>הסוכן הכפול <b>לא</b> מרכיב משקפיים</li><li>לסוכן הכפול <b>יש</b> כובע</li><li>הסוכן הכפול <b>לא</b> לובש מעיל אדום</li></ul>
+        box.innerHTML = `<p>אחד מששת החשודים הוא סוכן כפול. חמישה רמזים אמיתיים הגיעו מהמפקדה. שימו לב: כל ניחוש שגוי מוריד כוכב!</p>
+          <ul class="clues"><li>הסוכן הכפול <b>לא</b> לובש מעיל אדום</li><li>אם יש לו כובע, אז <b>אין</b> לו משקפיים</li><li>הוא מחזיק משהו ששמו מתחיל באות <b>מ</b></li><li>הוא מרכיב משקפיים <b>רק אם</b> המעיל שלו כחול</li><li>לו ולמר תפוז יש <b>אותו דבר</b> על הראש</li></ul>
           <div class="suspects">${SUSPECTS.map((s, i) => `<button class="suspect" data-i="${i}"><span class="face">${s.f}</span><b>${s.n}</b><br>${s.a.join("<br>")}</button>`).join("")}</div>`;
         box.querySelectorAll(".suspect").forEach((b) => (b.onclick = () => {
           const s = SUSPECTS[+b.dataset.i];
@@ -279,7 +321,7 @@
           ctx.msg(s.n + " לא אשם/ה! קראו שוב את הרמזים 🙂"); sfx.no();
         }));
       },
-      hints: ["התחילו מהרמז על המשקפיים: מי שמרכיב משקפיים יוצא מהרשימה.", "נשארו שני חשודים עם כובע ובלי משקפיים. מי מהם לא לובש אדום?"],
+      hints: ["עברו רמז-רמז ומחקו חשודים. הרמז על האות מ׳ מוחק את מי שמחזיק עיתון, והרמז על המעיל האדום מוחק את מר תפוז עצמו.", "למר תפוז יש כובע, אז גם לסוכן הכפול יש כובע. ומי שיש לו כובע, אין לו משקפיים."],
       solution: "הסוכן הכפול: קפטן מלפפון",
     },
   ];
